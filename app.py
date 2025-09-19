@@ -148,19 +148,17 @@ async def crawl_books(req: CrawlRequest) -> List[BookResult]:
 
             description_text = extract_full_description(dsoup)
 
-            # Crawl subcategory từ breadcrumb/danh mục truyện
+            # Crawl danh mục/subcategory (breadcrumb, etc)
             breadcrumb = dsoup.select_one('.breadcrumb a:nth-of-type(2)')
             subcategory = breadcrumb.get_text().strip() if breadcrumb else 'Unknown'
 
             # Random chọn chính 1
             chinh_1 = random.choice(CATEGORY_CHINH_1_LIST)
             category_main = [CATEGORY_CHINH, chinh_1]
-
-            # Gán category cho description và chapters
-            desc_category = [CATEGORY_CHINH, chinh_1, subcategory]
+            category_full = [CATEGORY_CHINH, chinh_1, subcategory]
 
             description = Description(
-                category=desc_category,
+                category=category_full,
                 text=description_text
             )
 
@@ -201,7 +199,7 @@ async def crawl_books(req: CrawlRequest) -> List[BookResult]:
                     ch_content = '<p>Chưa có nội dung</p>'
 
                 chapters.append(Chapter(
-                    category=desc_category,
+                    category=category_full,
                     title=ch_title,
                     content=ch_content,
                     source=ch_url
