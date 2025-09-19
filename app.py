@@ -44,8 +44,8 @@ class BookResult(BaseModel):
 
 
 class CrawlRequest(BaseModel):
-    num_books: int = 2
-    num_chapters: int = 5
+    num_books: int = 5
+    num_chapters: int = 10
 
 
 async def fetch_text(client: httpx.AsyncClient, url: str) -> Optional[str]:
@@ -304,4 +304,5 @@ if __name__ == '__main__':
         asyncio.run(run_and_save())
     except KeyboardInterrupt:
         print('\nHủy bởi người dùng')
+
 
