@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import List, Optional
 import httpx
 from bs4 import BeautifulSoup
 import asyncio
@@ -25,20 +25,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CATEGORY_KEYWORDS = [
-    "奇幻小说", "情色小说", "情色文学", "文学评论", "武侠小说", "通俗小说",
-    "时空穿越小说", "类型", "言情小说", "都市小说", "暗黑小说", "青少年言情小说"
+CATEGORY_CHINH = "長篇情色小說"
+CATEGORY_CHINH_1_LIST = [
+    "奇幻小说", "情色小说", "情色文学", "文学评论", "武侠小说", "热门小说",
+    "穿越小说", "网站分类", "言情小说", "通俗小说", "都市小说"
 ]
 
 class Chapter(BaseModel):
+    category: List[str]
     title: str
     content: str
     source: str
 
+class Description(BaseModel):
+    category: List[str]
+    text: str
+
 class BookResult(BaseModel):
+    category: List[str]
     id: str
     title: str
-    description: str
+    description: Description
     source_book: str
     chapters: List[Chapter]
 
@@ -91,7 +98,7 @@ def extract_full_description(dsoup: BeautifulSoup) -> str:
         return 'Chưa có mô tả'
     return "\n\n".join(parts)
 
-async def crawl_books(req: CrawlRequest):
+async def crawl_books(req: CrawlRequest) -> List[BookResult]:
     homepage = 'https://qnote.qq.com/'
     async with httpx.AsyncClient() as client:
         body = await fetch_text(client, homepage)
@@ -122,8 +129,7 @@ async def crawl_books(req: CrawlRequest):
         random.shuffle(book_ids)
         book_ids = book_ids[: req.num_books]
 
-        # Data structure: category -> subcategory -> list[BookResult]
-        results: Dict[str, Dict[str, List[BookResult]]] = {}
+        results: List[BookResult] = []
 
         for book_id in book_ids:
             detail_url = f'https://qnote.qq.com/detail/{book_id}'
@@ -140,14 +146,23 @@ async def crawl_books(req: CrawlRequest):
             title_tag = dsoup.find(['h1', 'h2'])
             title = title_tag.get_text().strip() if title_tag else f'Book {book_id}'
 
-            description = extract_full_description(dsoup)
+            description_text = extract_full_description(dsoup)
 
-            # Crawl subcategory from breadcrumb (category trên web)
+            # Crawl subcategory từ breadcrumb/danh mục truyện
             breadcrumb = dsoup.select_one('.breadcrumb a:nth-of-type(2)')
             subcategory = breadcrumb.get_text().strip() if breadcrumb else 'Unknown'
 
-            # Random gán category từ CATEGORY_KEYWORDS
-            category = random.choice(CATEGORY_KEYWORDS)
+            # Random chọn chính 1
+            chinh_1 = random.choice(CATEGORY_CHINH_1_LIST)
+            category_main = [CATEGORY_CHINH, chinh_1]
+
+            # Gán category cho description và chapters
+            desc_category = [CATEGORY_CHINH, chinh_1, subcategory]
+
+            description = Description(
+                category=desc_category,
+                text=description_text
+            )
 
             chapters = []
             for i in range(1, req.num_chapters + 1):
@@ -185,43 +200,25 @@ async def crawl_books(req: CrawlRequest):
                 else:
                     ch_content = '<p>Chưa có nội dung</p>'
 
-                chapters.append(Chapter(title=ch_title, content=ch_content, source=ch_url))
+                chapters.append(Chapter(
+                    category=desc_category,
+                    title=ch_title,
+                    content=ch_content,
+                    source=ch_url
+                ))
 
-            book = BookResult(
+            results.append(BookResult(
+                category=category_main,
                 id=book_id,
                 title=title,
                 description=description,
                 source_book=source_book,
                 chapters=chapters
-            )
+            ))
 
-            # Tổ chức kết quả theo category và subcategory
-            if category not in results:
-                results[category] = {}
-            if subcategory not in results[category]:
-                results[category][subcategory] = []
-            results[category][subcategory].append(book)
+        return results
 
-        # Chuyển kết quả về dạng list cho API trả về
-        output = []
-        for cat in CATEGORY_KEYWORDS:
-            if cat in results:
-                for subcat, books in results[cat].items():
-                    output.append({
-                        "category": cat,
-                        "subcategory": subcat,
-                        "books": [b.model_dump() for b in books]
-                    })
-            else:
-                # Nếu cần tạo category trống
-                output.append({
-                    "category": cat,
-                    "subcategory": "",
-                    "books": []
-                })
-        return output
-
-@app.post('/api/crawl')
+@app.post('/api/crawl', response_model=List[BookResult])
 async def api_crawl(req: CrawlRequest):
     return await crawl_books(req)
 
@@ -229,12 +226,10 @@ async def api_crawl(req: CrawlRequest):
 async def root():
     return {"status": "ok", "service": "QNote Auto Import Backend"}
 
-@app.get('/api/crawl')
+@app.get('/api/crawl', response_model=List[BookResult])
 async def api_crawl_get(num_books: int = 2, num_chapters: int = 5):
     req = CrawlRequest(num_books=num_books, num_chapters=num_chapters)
     return await crawl_books(req)
-
-# Các hàm lưu và export giữ nguyên (nếu tổ chức theo category thì cần chỉnh lại export cho đúng cấu trúc mới)
 
 if __name__ == '__main__':
     try:
@@ -258,8 +253,8 @@ if __name__ == '__main__':
             fname = f"qnote_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
             fpath = os.path.join(out_dir, fname)
             with open(fpath, 'w', encoding='utf-8') as fh:
-                json.dump(results, fh, ensure_ascii=False, indent=2)
-            print(f"Hoàn tất. Lưu {len(results)} category vào: {fpath}")
+                json.dump([r.model_dump() for r in results], fh, ensure_ascii=False, indent=2)
+            print(f"Hoàn tất. Lưu {len(results)} truyện vào: {fpath}")
 
         asyncio.run(run_and_save())
     except KeyboardInterrupt:
