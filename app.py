@@ -32,17 +32,17 @@ CATEGORY_CHINH_1_LIST = [
 ]
 
 class Chapter(BaseModel):
-    category: List[str]
+    category: str
     title: str
     content: str
     source: str
 
 class Description(BaseModel):
-    category: List[str]
+    category: str
     text: str
 
 class BookResult(BaseModel):
-    category: List[str]
+    category: str
     id: str
     title: str
     description: Description
@@ -154,8 +154,8 @@ async def crawl_books(req: CrawlRequest) -> List[BookResult]:
 
             # Random chọn chính 1
             chinh_1 = random.choice(CATEGORY_CHINH_1_LIST)
-            category_main = [CATEGORY_CHINH, chinh_1]
-            category_full = [CATEGORY_CHINH, chinh_1, subcategory]
+            category_main = f"{CATEGORY_CHINH},{chinh_1}"
+            category_full = f"{CATEGORY_CHINH},{chinh_1},{subcategory}"
 
             description = Description(
                 category=category_full,
