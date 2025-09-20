@@ -127,8 +127,8 @@ async def crawl_books_job(job_id: str, req: CrawlRequest):
     JOB_STORE[job_id]['status'] = 'running'
     JOB_STORE[job_id]['progress'] = 0
     try:
-        # homepage = 'https://qnote.qq.com/'
-                homepage = 'https://qnote.qq.com/tab/30083'
+        homepage = 'https://qnote.qq.com/'
+                # homepage = 'https://qnote.qq.com/tab/30083'
         async with httpx.AsyncClient() as client:
             body = await fetch_text(client, homepage)
             if not body:
@@ -193,4 +193,5 @@ def api_crawl_result(job_id: str):
 @app.get('/', tags=['root'])
 def root():
     return {"status": "ok", "service": "QNote Auto Import Job Backend"}
+
 
