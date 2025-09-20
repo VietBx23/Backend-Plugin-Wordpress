@@ -40,6 +40,7 @@ class BookResult(BaseModel):
 class CrawlRequest(BaseModel):
     num_books: int
     num_chapters: int
+    crawl_mode: Optional[str] = "short"  # "short" or "long"
 
 def clean_html(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
@@ -84,7 +85,7 @@ async def crawl_chapter(client, book_id, i):
     ch_content = clean_html(ch_html) if ch_html else '<p>Chưa có nội dung</p>'
     return Chapter(title=ch_title, content=ch_content, source=ch_url)
 
-async def crawl_single_book(client, book_id, num_chapters):
+async def crawl_single_book(client, book_id, num_chapters, crawl_mode):
     detail_url = f'https://qnote.qq.com/detail/{book_id}'
     detail_body = await fetch_text(client, detail_url)
     if not detail_body:
@@ -114,6 +115,22 @@ async def crawl_single_book(client, book_id, num_chapters):
     chapters = await asyncio.gather(*tasks)
     chapters = [ch for ch in chapters if ch]
 
+    # Truyện ngắn: gộp mô tả + tất cả chương vào content
+    if crawl_mode == "short":
+        full_content = description
+        for ch in chapters:
+            full_content += "\n\n<h3>" + ch.title + "</h3>\n" + ch.content
+        # Trả về một BookResult chỉ có mô tả là gộp, chapters = []
+        return BookResult(
+            id=book_id,
+            title=title,
+            description=full_content,
+            category=category,
+            source_book=source_book,
+            chapters=[]
+        )
+
+    # Truyện dài: tách chương riêng như cũ
     return BookResult(
         id=book_id,
         title=title,
@@ -128,7 +145,12 @@ async def crawl_books_job(job_id: str, req: CrawlRequest):
     JOB_STORE[job_id]['progress'] = 0
     try:
         homepage = 'https://qnote.qq.com/'
-                # homepage = 'https://qnote.qq.com/tab/30083'
+        if req.crawl_mode == "short":
+            homepage = 'https://qnote.qq.com/cate/30125'
+            req.num_chapters = min(req.num_chapters, 5)
+        else:
+            req.num_chapters = min(req.num_chapters, 30)
+
         async with httpx.AsyncClient() as client:
             body = await fetch_text(client, homepage)
             if not body:
@@ -159,7 +181,7 @@ async def crawl_books_job(job_id: str, req: CrawlRequest):
             book_ids = book_ids[: req.num_books]
 
             JOB_STORE[job_id]['progress'] = 10
-            tasks = [crawl_single_book(client, book_id, req.num_chapters) for book_id in book_ids]
+            tasks = [crawl_single_book(client, book_id, req.num_chapters, req.crawl_mode) for book_id in book_ids]
             results = await asyncio.gather(*tasks)
             results = [bk for bk in results if bk]
             JOB_STORE[job_id]['result'] = [bk.dict() for bk in results]
@@ -193,5 +215,3 @@ def api_crawl_result(job_id: str):
 @app.get('/', tags=['root'])
 def root():
     return {"status": "ok", "service": "QNote Auto Import Job Backend"}
-
-
